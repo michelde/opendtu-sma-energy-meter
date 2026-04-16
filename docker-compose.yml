@@ -1,0 +1,33 @@
+# docker-compose.yml — Hoymiles → SMA EMETER Bridge
+#
+# IMPORTANT: network_mode: host is required for UDP multicast to reach the
+# SMA Home Manager 2.0. Standard port mapping (-p / ports:) does not work
+# for multicast traffic.
+#
+# Usage:
+#   docker compose up -d
+#   docker compose logs -f
+
+services:
+  hoymiles-sma-bridge:
+    image: michelmu/opendtu-sma-energy-meter:latest
+    container_name: hoymiles-sma-bridge
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      # DTU firmware type: opendtu | dtupro | ahoydtu
+      DTU_TYPE: opendtu
+      # IP address or hostname of your OpenDTU / DTU-Pro / AhoyDTU
+      DTU_HOST: 192.168.1.100
+      DTU_TIMEOUT: "5"
+      # HTTP Basic Auth — leave empty if your DTU does not require authentication
+      DTU_USER: ""
+      DTU_PASSWORD: ""
+      # Virtual EMETER serial number — must be unique on your LAN
+      EMETER_SERIAL: "900000001"
+      # How often to read the DTU and broadcast an EMETER packet (seconds)
+      EMETER_INTERVAL: "5.0"
+      # Source IP for multicast — leave empty to use the default network interface
+      EMETER_INTERFACE: ""
+      # Log verbosity: DEBUG | INFO | WARNING | ERROR
+      LOG_LEVEL: INFO

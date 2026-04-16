@@ -1,0 +1,18 @@
+[Unit]
+Description=Hoymiles SMA EMETER Bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+ExecStart=/usr/bin/python3 /opt/hoymiles-sma-emeter/hoymiles_sma_bridge.py \
+    --dtu-type opendtu \
+    --dtu-host 192.168.1.100 \
+    --serial 900000001 \
+    --interval 5
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
