@@ -32,6 +32,7 @@ import time
 from typing import Optional
 
 import os
+import re
 
 import requests
 
@@ -304,19 +305,15 @@ class EMETERSender:
         if self.interface:
             # Interface kann als IP-Adresse ("192.168.10.12") oder
             # Interface-Name ("eth0", "br0") angegeben werden.
-            # Auf Unraid/Systemen mit shim-br0 ist der Interface-Name
-            # zuverlässiger als die IP-Adresse.
-            try:
-                socket.inet_aton(self.interface)
-                # Gültige IP-Adresse → direkt als IP_MULTICAST_IF setzen
+            if re.match(r'^\d+\.\d+\.\d+\.\d+$', self.interface):
+                # Sieht aus wie eine IP-Adresse → IP_MULTICAST_IF
                 sock.setsockopt(
                     socket.IPPROTO_IP,
                     socket.IP_MULTICAST_IF,
                     socket.inet_aton(self.interface),
                 )
-            except OSError:
-                # Kein gültiges IP-Format → als Interface-Name interpretieren
-                # SO_BINDTODEVICE bindet den Socket an ein bestimmtes Interface
+            else:
+                # Interface-Name → SO_BINDTODEVICE (braucht NET_RAW capability)
                 sock.setsockopt(
                     socket.SOL_SOCKET,
                     socket.SO_BINDTODEVICE,
