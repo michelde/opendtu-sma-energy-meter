@@ -302,11 +302,26 @@ class EMETERSender:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
         sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 32)
         if self.interface:
-            sock.setsockopt(
-                socket.IPPROTO_IP,
-                socket.IP_MULTICAST_IF,
-                socket.inet_aton(self.interface),
-            )
+            # Interface kann als IP-Adresse ("192.168.10.12") oder
+            # Interface-Name ("eth0", "br0") angegeben werden.
+            # Auf Unraid/Systemen mit shim-br0 ist der Interface-Name
+            # zuverlässiger als die IP-Adresse.
+            try:
+                socket.inet_aton(self.interface)
+                # Gültige IP-Adresse → direkt als IP_MULTICAST_IF setzen
+                sock.setsockopt(
+                    socket.IPPROTO_IP,
+                    socket.IP_MULTICAST_IF,
+                    socket.inet_aton(self.interface),
+                )
+            except OSError:
+                # Kein gültiges IP-Format → als Interface-Name interpretieren
+                # SO_BINDTODEVICE bindet den Socket an ein bestimmtes Interface
+                sock.setsockopt(
+                    socket.SOL_SOCKET,
+                    socket.SO_BINDTODEVICE,
+                    self.interface.encode(),
+                )
         return sock
 
     def _ticker(self) -> int:
@@ -417,7 +432,7 @@ def main() -> None:
     parser.add_argument(
         "--interface",
         default=os.environ.get("EMETER_INTERFACE", ""),
-        help="Quell-IP für Multicast (bei Mehrfach-NICs)  [env: EMETER_INTERFACE]",
+        help="Interface für Multicast: IP-Adresse ('192.168.10.12') oder Name ('eth0', 'br0')  [env: EMETER_INTERFACE]",
     )
     parser.add_argument(
         "--log-level",

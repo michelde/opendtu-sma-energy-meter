@@ -9,7 +9,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application
 COPY hoymiles_sma_bridge.py .
 
-# Run as non-root user
+# Non-root user
 RUN adduser -D appuser
 USER appuser
 
