@@ -297,7 +297,6 @@ class EMETERSender:
         self.port       = port
         self.interface  = interface
         self._sock      = self._create_socket()
-        self._start_ms  = int(time.monotonic() * 1000)
 
     def _create_socket(self) -> socket.socket:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
@@ -322,7 +321,7 @@ class EMETERSender:
         return sock
 
     def _ticker(self) -> int:
-        return int(time.monotonic() * 1000) - self._start_ms
+        return int(time.time() * 1000) & 0xFFFFFFFF  # Unix-ms, auf 32-bit begrenzt
 
     def send(self, power_w: float, energy_wh: float) -> None:
         pkt = build_emeter_packet(
