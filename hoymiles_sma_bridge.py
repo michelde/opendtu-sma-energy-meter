@@ -29,7 +29,6 @@ import argparse
 import logging
 import socket
 import time
-from typing import Optional
 
 import os
 import re
@@ -227,8 +226,8 @@ class OpenDTUReader(DTUReader):
 
     API-Endpunkt: GET /api/livedata/status
     Relevante Felder im JSON:
-      total.Power.v    – Gesamtleistung aller Wechselrichter [W]
-      total.YieldDay.v – Tagesenergie aller Wechselrichter [Wh]
+      total.Power.v      – Gesamtleistung aller Wechselrichter [W]
+      total.YieldTotal.v – Gesamtertrag aller Wechselrichter [kWh]
     """
 
     def __init__(self, host: str, timeout: int = 5,
@@ -243,8 +242,8 @@ class OpenDTUReader(DTUReader):
         data = r.json()
         # Gesamtwerte direkt aus dem "total"-Block lesen
         total = data.get("total", {})
-        power_w   = float(total.get("Power",    {}).get("v", 0))
-        energy_wh = float(total.get("YieldDay", {}).get("v", 0))
+        power_w   = float(total.get("Power",      {}).get("v", 0))
+        energy_wh = float(total.get("YieldTotal", {}).get("v", 0)) * 1000
         return power_w, energy_wh
 
 
@@ -348,28 +347,17 @@ def run(
 ) -> None:
     log.info("Bridge gestartet – sende alle %.1f s an %s:%d",
              interval, SMA_EMETER_MCAST_ADDR, SMA_EMETER_UDP_PORT)
-    cumulative_energy_wh = 0.0
-    last_day: Optional[int] = None
 
     while True:
         try:
-            power_w, energy_today_wh = dtu.read()
+            power_w, energy_wh = dtu.read()
 
-            # Tagesenergie als kumulierten Zähler behandeln
-            today = time.localtime().tm_yday
-            if last_day is None:
-                last_day = today
-            if today != last_day:
-                # Neuer Tag: Zähler wird weitergeführt, nicht zurückgesetzt
-                last_day = today
-            cumulative_energy_wh = max(cumulative_energy_wh, energy_today_wh)
-
-            sender.send(power_w, cumulative_energy_wh)
-            log.info("Gesendet: %.1f W  |  %.1f Wh heute", power_w, energy_today_wh)
+            sender.send(power_w, energy_wh)
+            log.info("Gesendet: %.1f W  |  %.3f kWh gesamt", power_w, energy_wh / 1000)
 
         except requests.RequestException as exc:
             log.warning("DTU nicht erreichbar: %s", exc)
-            sender.send(0.0, cumulative_energy_wh)
+            sender.send(0.0, 0.0)
 
         except Exception as exc:  # pylint: disable=broad-except
             log.error("Fehler: %s", exc)
