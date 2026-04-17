@@ -18,7 +18,7 @@ services:
       # DTU firmware type: opendtu | dtupro | ahoydtu
       DTU_TYPE: opendtu
       # IP address or hostname of your OpenDTU / DTU-Pro / AhoyDTU
-      DTU_HOST: 192.168.1.100
+      DTU_HOST: 192.168.20.177
       DTU_TIMEOUT: "5"
       # HTTP Basic Auth — leave empty if your DTU does not require authentication
       DTU_USER: ""
@@ -26,7 +26,7 @@ services:
       # Virtual EMETER serial number — must be unique on your LAN
       EMETER_SERIAL: "900000001"
       # How often to read the DTU and broadcast an EMETER packet (seconds)
-      EMETER_INTERVAL: "5.0"
+      EMETER_INTERVAL: "1.0"
       # Source IP for multicast — leave empty to use the default network interface
       EMETER_INTERFACE: ""
       # Log verbosity: DEBUG | INFO | WARNING | ERROR

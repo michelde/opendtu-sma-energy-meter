@@ -21,8 +21,8 @@ Verwendung:
 SMA EMETER Speedwire Protokoll (v1.0):
   Multicast-Adresse : 239.12.255.254
   UDP-Port          : 9522
-  Obis-Code         : 0:1.4.0  → aktuelle Wirkleistung Einspeisung [W × 10]
-  Obis-Code         : 0:1.8.0  → Energie-Zähler Einspeisung [Wh × 3600]
+  Obis-Code         : 1:2.4.0  → aktuelle Wirkleistung Einspeisung [W × 10, Einheit 0.1 W]
+  Obis-Code         : 1:2.8.0  → Energie-Zähler Einspeisung [Wh × 3600, Einheit 1 Ws]
 """
 
 import argparse
@@ -42,60 +42,53 @@ import requests
 SMA_EMETER_MCAST_ADDR = "239.12.255.254"
 SMA_EMETER_UDP_PORT   = 9522
 
-# OBIS-IDs (SMA EMETER Protokoll) – laut speedwiredecoder.py Kanal-Mapping:
-#   Kanal 1 (0x0001xxxx) = pconsume  = Netzbezug
-#   Kanal 2 (0x0002xxxx) = psupply   = Einspeisung ins Netz / PV-Erzeugung
-OBIS_P_CONSUME_W  = 0x00010400  # Wirkleistung Netzbezug    [0.1 W]
-OBIS_E_CONSUME_WH = 0x00010800  # Energie Netzbezug         [0.1 Wh]
-OBIS_P_SUPPLY_W   = 0x00020400  # Wirkleistung Einspeisung  [0.1 W]
-OBIS_E_SUPPLY_WH  = 0x00020800  # Energie Einspeisung       [0.1 Wh]
+# OBIS-IDs (SMA EMETER Protokoll, Spec Section 3.1 + Beispiel-Telegramm Section 4):
+#   OBIS 4-Byte Format: [B=Channel][C=MeasuredValue][D=Type][E=Tariff]
+#   B=0x01 = Kanal 1 (Sums), laut Spec-Beispiel Offset 28: 0x01 0x01 0x08 0x00
+#   C=1 = Active power/energy +  (Netzbezug)
+#   C=2 = Active power/energy −  (Einspeisung)
+OBIS_P_CONSUME_W  = 0x01010400  # Wirkleistung Netzbezug    [0.1 W]
+OBIS_E_CONSUME_WH = 0x01010800  # Energie Netzbezug         [1 Ws]
+OBIS_P_SUPPLY_W   = 0x01020400  # Wirkleistung Einspeisung  [0.1 W]
+OBIS_E_SUPPLY_WH  = 0x01020800  # Energie Einspeisung       [1 Ws]
 
-# Dummy-Einträge in der exakten Reihenfolge wie sie ein echter SMA Energy Meter sendet.
-# Abwechselnd (M32=32-bit Messwert, C64=64-bit Zähler).
-# Quelle: daimoniac/pysmaemeter begin() + Paket-Dekodierung.
+# Dummy-Einträge ab Kanal 3 in der Reihenfolge wie ein echter SMA Energy Meter sendet.
+# Quelle: sma-emeter-simulator main.cpp + Spec Section 3.1 Kanal-Tabelle.
+# Kanäle 1+2 (Active+/-) kommen ZUERST im Paket (vor diesen Dummy-Einträgen).
 OBIS_DUMMY_SEQUENCE = [
-    ('M32', 0x00030400), ('C64', 0x00030800),  # Reactive+ gesamt
-    ('M32', 0x00040400), ('C64', 0x00040800),  # Reactive- gesamt
-    ('M32', 0x00090400), ('C64', 0x00090800),  # Apparent+ gesamt
-    ('M32', 0x000A0400), ('C64', 0x000A0800),  # Apparent- gesamt
-    ('M32', 0x000D0400),                        # Power Factor gesamt
-    ('M32', 0x00150400), ('C64', 0x00150800),  # Active+  L1
-    ('M32', 0x00160400), ('C64', 0x00160800),  # Active-  L1
-    ('M32', 0x00170400), ('C64', 0x00170800),  # Reactive+ L1
-    ('M32', 0x00180400), ('C64', 0x00180800),  # Reactive- L1
-    ('M32', 0x001D0400), ('C64', 0x001D0800),  # Apparent+ L1
-    ('M32', 0x001E0400), ('C64', 0x001E0800),  # Apparent- L1
-    ('M32', 0x001F0400),                        # Current L1
-    ('M32', 0x00200400),                        # Voltage L1
-    ('M32', 0x00210400),                        # Power Factor L1
-    ('M32', 0x00290400), ('C64', 0x00290800),  # Active+  L2
-    ('M32', 0x002A0400), ('C64', 0x002A0800),  # Active-  L2
-    ('M32', 0x002B0400), ('C64', 0x002B0800),  # Reactive+ L2
-    ('M32', 0x002C0400), ('C64', 0x002C0800),  # Reactive- L2
-    ('M32', 0x00310400), ('C64', 0x00310800),  # Apparent+ L2
-    ('M32', 0x00320400), ('C64', 0x00320800),  # Apparent- L2
-    ('M32', 0x00330400),                        # Current L2
-    ('M32', 0x00340400),                        # Voltage L2
-    ('M32', 0x00350400),                        # Power Factor L2
-    ('M32', 0x003D0400), ('C64', 0x003D0800),  # Active+  L3
-    ('M32', 0x003E0400), ('C64', 0x003E0800),  # Active-  L3
-    ('M32', 0x003F0400), ('C64', 0x003F0800),  # Reactive+ L3
-    ('M32', 0x00400400), ('C64', 0x00400800),  # Reactive- L3
-    ('M32', 0x00450400), ('C64', 0x00450800),  # Apparent+ L3
-    ('M32', 0x00460400), ('C64', 0x00460800),  # Apparent- L3
-    ('M32', 0x00470400),                        # Current L3
-    ('M32', 0x00480400),                        # Voltage L3
-    ('M32', 0x00490400),                        # Power Factor L3
+    ('M32', 0x01030400), ('C64', 0x01030800),  # Reactive+ gesamt
+    ('M32', 0x01040400), ('C64', 0x01040800),  # Reactive- gesamt
+    ('M32', 0x01090400), ('C64', 0x01090800),  # Apparent+ gesamt
+    ('M32', 0x010A0400), ('C64', 0x010A0800),  # Apparent- gesamt
+    ('M32', 0x010D0400),                        # Power Factor gesamt
+    ('M32', 0x01150400), ('C64', 0x01150800),  # Active+  L1
+    ('M32', 0x01160400), ('C64', 0x01160800),  # Active-  L1
+    ('M32', 0x01170400), ('C64', 0x01170800),  # Reactive+ L1
+    ('M32', 0x01180400), ('C64', 0x01180800),  # Reactive- L1
+    ('M32', 0x011D0400), ('C64', 0x011D0800),  # Apparent+ L1
+    ('M32', 0x011E0400), ('C64', 0x011E0800),  # Apparent- L1
+    ('M32', 0x011F0400),                        # Current L1
+    ('M32', 0x01200400),                        # Voltage L1
+    ('M32', 0x01210400),                        # Power Factor L1
+    ('M32', 0x01290400), ('C64', 0x01290800),  # Active+  L2
+    ('M32', 0x012A0400), ('C64', 0x012A0800),  # Active-  L2
+    ('M32', 0x012B0400), ('C64', 0x012B0800),  # Reactive+ L2
+    ('M32', 0x012C0400), ('C64', 0x012C0800),  # Reactive- L2
+    ('M32', 0x01310400), ('C64', 0x01310800),  # Apparent+ L2
+    ('M32', 0x01320400), ('C64', 0x01320800),  # Apparent- L2
+    ('M32', 0x01330400),                        # Current L2
+    ('M32', 0x01340400),                        # Voltage L2
+    ('M32', 0x01350400),                        # Power Factor L2
+    ('M32', 0x013D0400), ('C64', 0x013D0800),  # Active+  L3
+    ('M32', 0x013E0400), ('C64', 0x013E0800),  # Active-  L3
+    ('M32', 0x013F0400), ('C64', 0x013F0800),  # Reactive+ L3
+    ('M32', 0x01400400), ('C64', 0x01400800),  # Reactive- L3
+    ('M32', 0x01450400), ('C64', 0x01450800),  # Apparent+ L3
+    ('M32', 0x01460400), ('C64', 0x01460800),  # Apparent- L3
+    ('M32', 0x01470400),                        # Current L3
+    ('M32', 0x01480400),                        # Voltage L3
+    ('M32', 0x01490400),                        # Power Factor L3
 ]
-
-# SMA Speedwire Header (fix)
-SMA_HEADER = bytes([
-    0x53, 0x4D, 0x41,  0x00,  # "SMA\0"
-    0x00, 0x04,               # Tag-Länge 4
-    0x02, 0xA0,               # Group 2 (EMETER)
-    0x00, 0x00,               # Länge  (wird später gefüllt)
-    0x60, 0x69,               # Protocol-ID EMETER v1 = 0x6069
-])
 
 # ---------------------------------------------------------------------------
 # Hilfsfunktionen – EMETER-Paket bauen
@@ -154,22 +147,23 @@ def build_emeter_packet(
 
     payload_len = 12  # INITIAL_PAYLOAD_LENGTH aus Referenz
 
-    # Dummy-Werte zuerst (exakte Reihenfolge wie echter SMA Energy Meter)
+    # Kanal 1 (Netzbezug) + Kanal 2 (Einspeisung) ZUERST – laut Spec Section 3.1
+    # und Simulator main.cpp Z. 121-124 (Active vor Reactive/Apparent).
+    # Skalierung laut Spec Section 3.3:
+    #   Leistung [W]  → ×10   (Einheit 0.1 W)
+    #   Energie  [Wh] → ×3600 (Einheit 1 Ws = Watt-Sekunde)
+    pos = w32(pos, OBIS_P_CONSUME_W);  pos = w32(pos, 0); payload_len += 8
+    pos = w32(pos, OBIS_E_CONSUME_WH); pos = w64(pos, 0); payload_len += 12
+    pos = w32(pos, OBIS_P_SUPPLY_W);   pos = w32(pos, max(0, int(round(power_w * 10)))); payload_len += 8
+    pos = w32(pos, OBIS_E_SUPPLY_WH);  pos = w64(pos, max(0, int(round(energy_wh * 3600)))); payload_len += 12
+
+    # Dummy-Werte ab Kanal 3 (Reactive/Apparent/L1/L2/L3)
     for typ, obis in OBIS_DUMMY_SEQUENCE:
         pos = w32(pos, obis)
         if typ == 'M32':
             pos = w32(pos, 0); payload_len += 8
         else:
             pos = w64(pos, 0); payload_len += 12
-
-    # Nutzwerte: Bezug (Kanal 1) zuerst, dann Einspeisung/Erzeugung (Kanal 2)
-    # Skalierung laut SMA-Konvention:
-    #   Leistung [W]  → ×10   (Einheit 0.1 W)
-    #   Energie  [Wh] → ×3600 (Einheit Joule / Ws)
-    pos = w32(pos, OBIS_P_CONSUME_W);  pos = w32(pos, 0); payload_len += 8
-    pos = w32(pos, OBIS_E_CONSUME_WH); pos = w64(pos, 0); payload_len += 12
-    pos = w32(pos, OBIS_P_SUPPLY_W);   pos = w32(pos, max(0, int(round(power_w * 10)))); payload_len += 8
-    pos = w32(pos, OBIS_E_SUPPLY_WH);  pos = w64(pos, max(0, int(round(energy_wh * 3600)))); payload_len += 12
 
     # Version + Konstante (Abschluss wie in Referenz)
     pos = w32(pos, 0x90000000); pos = w32(pos, 0x01020452); payload_len += 8
